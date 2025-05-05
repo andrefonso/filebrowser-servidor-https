@@ -1,187 +1,174 @@
-# Configurando Acesso Externo ao File Browser com HTTPS usando Caddy e Certificado Autossinado
+# Acesso Externo Seguro ao File Browser com HTTPS Autossinado + DuckDNS
 
-Este tutorial mostra como acessar o File Browser pela internet de forma segura usando HTTPS com **certificado autossinado**, ideal para quando não se quer depender do Let's Encrypt ou de domínios públicos.
-
----
-
-## Requisitos
-
-- Zorin OS (ou outro Linux)
-- File Browser instalado e funcionando em `http://localhost:8080`
-- Caddy instalado
-- IP público fixo ou uso de DDNS (opcional)
-- Redirecionamento de porta 443 no roteador para a máquina Zorin
-- Permissões `sudo`
+Este tutorial ensina como configurar acesso remoto seguro ao **File Browser** instalado em um servidor Linux (Zorin OS, por exemplo), usando **HTTPS com certificado autossinado** e **DDNS com DuckDNS**.
 
 ---
 
-## 1. Gerar um certificado SSL autossinado
+## ✅ Requisitos
 
-```bash
-mkdir -p ~/certs
-openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes \
-  -keyout ~/certs/filebrowser.key \
-  -out ~/certs/filebrowser.crt \
-  -subj "/CN=meuarquivos.local"
-```
-
-Isso irá criar:
-- `filebrowser.crt` (certificado)
-- `filebrowser.key` (chave privada)
+- Servidor com **Zorin OS** (ou similar) com o **File Browser** já instalado.
+- Pasta a ser compartilhada: `/home/andre/Compartilhado/`
+- Domínio DDNS já criado no DuckDNS: `filecontrol.duckdns.org`
+- Acesso ao roteador para redirecionar portas.
+- Conexão com a internet.
 
 ---
 
-## 2. Instalar o Caddy (se ainda não tiver)
+## 🌐 1. Configurar DDNS com DuckDNS
 
-```bash
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update
-sudo apt install caddy
-```
-
----
-
-## 3. Configurar o Caddy com HTTPS autossinado
-
-Edite o arquivo:
-
-```bash
-sudo nano /etc/caddy/Caddyfile
-```
-
-Insira a seguinte configuração (substitua o domínio se necessário):
-
-```caddy
-https://meuarquivos.local:443 {
-    tls /home/SEU_USUARIO/certs/filebrowser.crt /home/SEU_USUARIO/certs/filebrowser.key
-    reverse_proxy localhost:8080
-}
-```
-
-Substitua `SEU_USUARIO` pelo seu nome de usuário do sistema.
-
----
-
-## 4. Redirecionar a porta no roteador
-
-Configure o roteador para encaminhar:
-
-```
-Porta externa: 443
-IP interno: 192.168.0.142 (ou o IP do seu Zorin OS)
-Porta interna: 443
-Protocolo: TCP
-```
-
----
-
-## 5. Reiniciar o Caddy
-
-```bash
-sudo systemctl restart caddy
-```
-
----
-
-## 6. Acessar o File Browser
-
-Abra o navegador e acesse:
-
-```
-https://meuarquivos.local
-```
-
-Você verá um aviso de segurança (por ser certificado autossinado). Confirme a exceção para acessar.
-
----
-
-## 7. Habilitar o File Browser no boot
-
-```bash
-sudo systemctl enable filebrowser
-sudo systemctl start filebrowser
-```
-
----
-
-## 🦆 Configurando DDNS com DuckDNS
-
-Se você não possui um IP público fixo, pode usar o DuckDNS para registrar um domínio gratuito que sempre apontará para seu servidor, mesmo com IP dinâmico.
-
-### 1. Criar conta no DuckDNS
-
-- Acesse: https://www.duckdns.org
-- Faça login com GitHub, Google ou outro provedor
-- Registre um subdomínio (exemplo: `meuarquivos`)
-- Copie seu token de autenticação
-
-### 2. Criar diretório e script de atualização
+### Criar estrutura de diretório e script de atualização
 
 ```bash
 mkdir -p ~/duckdns
-cd ~/duckdns
-nano duck.sh
+nano ~/duckdns/duck.sh
 ```
 
-Conteúdo do `duck.sh` (substitua `seusubdominio` e `seutoken`):
+### Conteúdo do `duck.sh`:
 
 ```bash
 #!/bin/bash
-echo url="https://www.duckdns.org/update?domains=seusubdominio&token=seutoken&ip=" | curl -k -o ~/duckdns/duck.log -K -
+echo url="https://www.duckdns.org/update?domains=filecontrol&token=SEU_TOKEN_DUCKDNS&ip=" | curl -k -o ~/duckdns/duck.log -K -
 ```
 
-Torne o script executável:
+Substitua `SEU_TOKEN_DUCKDNS` pelo seu **token pessoal** disponível no site do [DuckDNS](https://www.duckdns.org).
+
+### Tornar o script executável
 
 ```bash
-chmod +x duck.sh
+chmod +x ~/duckdns/duck.sh
 ```
 
-### 3. Atualizar IP automaticamente com cron
+### Automatizar a execução com cron
 
 ```bash
 crontab -e
 ```
 
-Adicione ao final do arquivo:
+Adicione a linha abaixo ao final do arquivo:
 
-```bash
+```cron
 */5 * * * * ~/duckdns/duck.sh >/dev/null 2>&1
 ```
 
-### 4. Testar manualmente
+Isso fará com que o IP seja atualizado a cada 5 minutos.
+
+---
+
+## 🔁 2. Redirecionar a porta no roteador
+
+Acesse o painel do seu roteador e redirecione a porta 443 para o IP local do servidor (ex: `192.168.0.142`) e a porta do File Browser (ex: 8080).
+
+**Exemplo de redirecionamento de porta:**
+- Porta externa: `443`
+- IP interno: `192.168.0.142`
+- Porta interna: `8080`
+- Protocolo: `TCP`
+
+---
+
+## 🔒 3. Gerar Certificado HTTPS Autossinado
+
+### Criar arquivo de configuração
 
 ```bash
-./duck.sh
-cat duck.log
+nano ~/duckdns/filebrowser-cert.conf
 ```
 
-Se funcionar, a resposta será:
+### Conteúdo do arquivo:
 
+```ini
+[req]
+default_bits       = 2048
+prompt             = no
+default_md         = sha256
+req_extensions     = req_ext
+distinguished_name = dn
+
+[dn]
+CN = filecontrol.duckdns.org
+
+[req_ext]
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1   = filecontrol.duckdns.org
+DNS.2   = filecontrol.local
+IP.1    = 192.168.0.142
 ```
-OK
+
+### Gerar o certificado:
+
+```bash
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048   -keyout /etc/ssl/private/filebrowser.key   -out /etc/ssl/certs/filebrowser.crt   -config ~/duckdns/filebrowser-cert.conf
 ```
-
-### 5. Usar o domínio DuckDNS
-
-Agora você pode usar seu domínio (ex: `meuarquivos.duckdns.org`) para acessar o File Browser mesmo fora de casa.
-
-Substitua o domínio usado no `Caddyfile` por este novo domínio.
 
 ---
 
-## Observações
+## ⚙️ 4. Configurar o File Browser para usar HTTPS
 
-- O aviso de "conexão insegura" é esperado com certificados autossinados.
-- Se quiser evitar o aviso, pode importar o certificado como confiável no navegador.
-- Se você já usa DDNS, pode considerar configurar o Caddy para usar Let's Encrypt em vez de um certificado autossinado.
+Edite o serviço do File Browser para usar o certificado:
+
+```bash
+sudo nano /etc/systemd/system/filebrowser.service
+```
+
+**Exemplo de configuração:**
+
+```ini
+[Unit]
+Description=File Browser
+After=network.target
+
+[Service]
+User=andre
+ExecStart=/usr/local/bin/filebrowser -r /home/andre/Compartilhado/   --address 0.0.0.0 --port 8080   --cert /etc/ssl/certs/filebrowser.crt   --key /etc/ssl/private/filebrowser.key
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> Certifique-se de que o caminho do binário `filebrowser` esteja correto.
+
+### Recarregar e reiniciar o serviço:
+
+```bash
+sudo systemctl daemon-reexec
+sudo systemctl daemon-reload
+sudo systemctl enable filebrowser
+sudo systemctl restart filebrowser
+```
 
 ---
 
-## Referências
+## 🔍 5. Acessar o File Browser
 
-- https://filebrowser.org
-- https://caddyserver.com
-- https://duckdns.org
-- https://openssl.org
+### Acesso pela rede local:
+
+```
+https://192.168.0.142:8080
+```
+
+> Será necessário aceitar o certificado autossinado no navegador.
+
+### Acesso remoto pela internet:
+
+```
+https://filecontrol.duckdns.org
+```
+
+> Você também verá um aviso de segurança ao usar um certificado autossinado. Basta clicar em "Avançado" > "Prosseguir assim mesmo".
+
+---
+
+## 🧪 Testes e validações
+
+- Acesse da sua rede local e de fora da sua casa.
+- Verifique se a página de login do File Browser aparece.
+- Faça login com suas credenciais configuradas.
+
+---
+
+## ✅ Finalizado
+
+Agora você pode acessar seu servidor de arquivos com segurança, tanto **em rede local** quanto **pela internet**, usando o File Browser com HTTPS.
