@@ -1,6 +1,10 @@
-# Acesso Externo Seguro ao File Browser com HTTPS Autossinado + DuckDNS
+# Acesso Seguro ao File Browser via HTTPS (Interno e Externo) com DuckDNS
+
+# Configuração do File Browser com HTTPS autossinado, acessível pela rede local e remotamente pela internet usando DDNS (DuckDNS) em um servidor Linux.
 
 Este tutorial ensina como configurar acesso remoto seguro ao **File Browser** instalado em um servidor Linux (Zorin OS, por exemplo), usando **HTTPS com certificado autossinado** e **DDNS com DuckDNS**.
+
+
 
 ---
 
