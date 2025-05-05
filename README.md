@@ -1,134 +1,187 @@
-# Configurando Acesso Externo com HTTPS ao File Browser no Zorin OS
+# Configurando Acesso Externo ao File Browser com HTTPS usando Caddy e Certificado Autossinado
 
-Este tutorial descreve como tornar o File Browser acessível pela internet com conexão segura via HTTPS, utilizando Nginx como proxy reverso e Certbot (Let's Encrypt) para geração automática de certificado SSL.
-
-> ⚠️ O File Browser já deve estar instalado e funcionando em rede local, servindo arquivos a partir da pasta:
->
-> `/home/andre/Compartilhado/`
+Este tutorial mostra como acessar o File Browser pela internet de forma segura usando HTTPS com **certificado autossinado**, ideal para quando não se quer depender do Let's Encrypt ou de domínios públicos.
 
 ---
 
 ## Requisitos
 
-- Zorin OS com o File Browser já instalado.
-- Nome de domínio válido (ex: `meuservidor.dyndns.org`) apontando para seu IP público.
-- Portas 80 e 443 redirecionadas no seu roteador para o IP local do Zorin OS.
-- Acesso root ou sudo.
+- Zorin OS (ou outro Linux)
+- File Browser instalado e funcionando em `http://localhost:8080`
+- Caddy instalado
+- IP público fixo ou uso de DDNS (opcional)
+- Redirecionamento de porta 443 no roteador para a máquina Zorin
+- Permissões `sudo`
 
 ---
 
-## 1. Instalar o Nginx
+## 1. Gerar um certificado SSL autossinado
 
 ```bash
+mkdir -p ~/certs
+openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes \
+  -keyout ~/certs/filebrowser.key \
+  -out ~/certs/filebrowser.crt \
+  -subj "/CN=meuarquivos.local"
+```
+
+Isso irá criar:
+- `filebrowser.crt` (certificado)
+- `filebrowser.key` (chave privada)
+
+---
+
+## 2. Instalar o Caddy (se ainda não tiver)
+
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
 sudo apt update
-sudo apt install nginx -y
+sudo apt install caddy
 ```
 
 ---
 
-## 2. Criar configuração Nginx para proxy reverso
+## 3. Configurar o Caddy com HTTPS autossinado
 
-Crie um arquivo de configuração do site:
+Edite o arquivo:
 
 ```bash
-sudo nano /etc/nginx/sites-available/filebrowser
+sudo nano /etc/caddy/Caddyfile
 ```
 
-Conteúdo (substitua `meuservidor.dyndns.org` pelo seu domínio):
+Insira a seguinte configuração (substitua o domínio se necessário):
 
-```nginx
-server {
-    listen 80;
-    server_name meuservidor.dyndns.org;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
+```caddy
+https://meuarquivos.local:443 {
+    tls /home/SEU_USUARIO/certs/filebrowser.crt /home/SEU_USUARIO/certs/filebrowser.key
+    reverse_proxy localhost:8080
 }
 ```
 
-Ative a configuração com um link simbólico:
+Substitua `SEU_USUARIO` pelo seu nome de usuário do sistema.
 
-```bash
-sudo ln -s /etc/nginx/sites-available/filebrowser /etc/nginx/sites-enabled/
+---
+
+## 4. Redirecionar a porta no roteador
+
+Configure o roteador para encaminhar:
+
 ```
-
-Teste a configuração do Nginx:
-
-```bash
-sudo nginx -t
-```
-
-Reinicie o Nginx:
-
-```bash
-sudo systemctl restart nginx
+Porta externa: 443
+IP interno: 192.168.0.142 (ou o IP do seu Zorin OS)
+Porta interna: 443
+Protocolo: TCP
 ```
 
 ---
 
-## 3. Instalar o Certbot e configurar HTTPS com Let's Encrypt
+## 5. Reiniciar o Caddy
 
 ```bash
-sudo apt install certbot python3-certbot-nginx -y
-```
-
-Obtenha e configure o certificado SSL:
-
-```bash
-sudo certbot --nginx -d meuservidor.dyndns.org
-```
-
-Durante o processo:
-- Aceite os termos de uso.
-- Escolha a opção de redirecionamento automático de HTTP para HTTPS.
-
-Teste a renovação automática:
-
-```bash
-sudo certbot renew --dry-run
+sudo systemctl restart caddy
 ```
 
 ---
 
-## 4. (Opcional) Ativar firewall UFW e liberar acesso
+## 6. Acessar o File Browser
+
+Abra o navegador e acesse:
+
+```
+https://meuarquivos.local
+```
+
+Você verá um aviso de segurança (por ser certificado autossinado). Confirme a exceção para acessar.
+
+---
+
+## 7. Habilitar o File Browser no boot
 
 ```bash
-sudo apt install ufw -y
-sudo ufw allow 'Nginx Full'
-sudo ufw enable
+sudo systemctl enable filebrowser
+sudo systemctl start filebrowser
 ```
 
 ---
 
-## 5. Acesso externo ao File Browser
+## 🦆 Configurando DDNS com DuckDNS
 
-Agora o File Browser estará acessível de qualquer lugar via HTTPS:
+Se você não possui um IP público fixo, pode usar o DuckDNS para registrar um domínio gratuito que sempre apontará para seu servidor, mesmo com IP dinâmico.
+
+### 1. Criar conta no DuckDNS
+
+- Acesse: https://www.duckdns.org
+- Faça login com GitHub, Google ou outro provedor
+- Registre um subdomínio (exemplo: `meuarquivos`)
+- Copie seu token de autenticação
+
+### 2. Criar diretório e script de atualização
+
+```bash
+mkdir -p ~/duckdns
+cd ~/duckdns
+nano duck.sh
+```
+
+Conteúdo do `duck.sh` (substitua `seusubdominio` e `seutoken`):
+
+```bash
+#!/bin/bash
+echo url="https://www.duckdns.org/update?domains=seusubdominio&token=seutoken&ip=" | curl -k -o ~/duckdns/duck.log -K -
+```
+
+Torne o script executável:
+
+```bash
+chmod +x duck.sh
+```
+
+### 3. Atualizar IP automaticamente com cron
+
+```bash
+crontab -e
+```
+
+Adicione ao final do arquivo:
+
+```bash
+*/5 * * * * ~/duckdns/duck.sh >/dev/null 2>&1
+```
+
+### 4. Testar manualmente
+
+```bash
+./duck.sh
+cat duck.log
+```
+
+Se funcionar, a resposta será:
 
 ```
-https://meuservidor.dyndns.org
+OK
 ```
+
+### 5. Usar o domínio DuckDNS
+
+Agora você pode usar seu domínio (ex: `meuarquivos.duckdns.org`) para acessar o File Browser mesmo fora de casa.
+
+Substitua o domínio usado no `Caddyfile` por este novo domínio.
 
 ---
 
-## 6. Segurança adicional recomendada
+## Observações
 
-- Altere as credenciais padrão no painel do File Browser.
-- Use senhas fortes.
-- Verifique periodicamente os certificados SSL com:
-
-```bash
-sudo certbot certificates
-```
+- O aviso de "conexão insegura" é esperado com certificados autossinados.
+- Se quiser evitar o aviso, pode importar o certificado como confiável no navegador.
+- Se você já usa DDNS, pode considerar configurar o Caddy para usar Let's Encrypt em vez de um certificado autossinado.
 
 ---
 
 ## Referências
 
 - https://filebrowser.org
-- https://certbot.eff.org
-- https://nginx.org
+- https://caddyserver.com
+- https://duckdns.org
+- https://openssl.org
